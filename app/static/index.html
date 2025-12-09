@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Genre Predictor</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+            background: #fcfcfc;
+        }
+        #bg-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+        .container {
+            position: relative;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 40px;
+            margin: 40px auto;
+            max-width: 600px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            z-index: 1;
+        }
+        textarea {
+            width: 100%;
+            height: 120px;
+            margin-bottom: 10px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            padding: 10px 20px;
+            cursor: pointer;
+            background: #2c3e50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button:hover {
+            background: #34495e;
+        }
+        #output {
+            margin-top: 20px;
+            border-top: 1px solid #ccc;
+            padding-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="bg-canvas"></canvas>
+
+    <div class="container">
+        <h2>Genre Predictor</h2>
+        
+        <p>Enter a movie synopsis (min 20 words):</p>
+        <textarea id="plotInput"></textarea>
+        <button onclick="submitPlot()">Predict</button>
+
+        <div id="output"></div>
+
+        <hr style="margin-top: 40px; border: 0; border-top: 1px solid #ddd;">
+        
+        <div style="font-size: 0.9em; color: #666;">
+            <p><strong>Supported Genres:</strong> Comedy, Cult, Flashback, Historical, Revenge, Romantic, Sci-Fi, Violence.</p>
+            
+            <p><strong>Note on Accuracy:</strong><br>
+            The model was trained on a highly imbalanced dataset. It has seen over 3,000 examples of <em>Violence</em> but fewer than 200 examples of <em>Historical</em> or <em>Sci-Fi</em>. Consequently, it may struggle to correctly identify these minority genres compared to the more dominant ones.</p>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('bg-canvas');
+        const context = canvas.getContext('2d');
+        let particles = [];
+        
+        /**
+         * Resizes the canvas to match the window dimensions and re-initializes particles.
+         */
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            initParticles();
+        }
+        
+        /**
+         * Creates a fresh set of particles based on screen width.
+         */
+        function initParticles() {
+            particles = [];
+            // Create fewer particles on smaller screens to maintain performance
+            const particleCount = Math.floor(window.innerWidth / 10); 
+            
+            for(let i = 0; i < particleCount; i++) {
+                particles.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    velocityX: (Math.random() - 0.5) * 0.5,
+                    velocityY: (Math.random() - 0.5) * 0.5,
+                    size: Math.random() * 2 + 1
+                });
+            }
+        }
+
+        /**
+         * Main animation loop. Updates positions and draws the network graph.
+         */
+        function animateParticles() {
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            context.fillStyle = '#b0bec5';
+            
+            particles.forEach((particle, index) => {
+                // Update position
+                particle.x += particle.velocityX;
+                particle.y += particle.velocityY;
+
+                // Bounce particles off the canvas edges
+                if(particle.x < 0 || particle.x > canvas.width) {
+                    particle.velocityX *= -1;
+                }
+                if(particle.y < 0 || particle.y > canvas.height) {
+                    particle.velocityY *= -1;
+                }
+
+                // Draw the particle dot
+                context.beginPath();
+                context.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+                context.fill();
+
+                // Draw connecting lines to nearby particles
+                for(let j = index + 1; j < particles.length; j++) {
+                    const neighbor = particles[j];
+                    const diffX = particle.x - neighbor.x;
+                    const diffY = particle.y - neighbor.y;
+                    const distance = Math.sqrt(diffX * diffX + diffY * diffY);
+                    
+                    if(distance < 100) {
+                        // Fade out the line as particles get further apart
+                        context.strokeStyle = `rgba(176, 190, 197, ${1 - distance / 100})`;
+                        context.lineWidth = 0.5;
+                        context.beginPath();
+                        context.moveTo(particle.x, particle.y);
+                        context.lineTo(neighbor.x, neighbor.y);
+                        context.stroke();
+                    }
+                }
+            });
+            
+            requestAnimationFrame(animateParticles);
+        }
+
+        // Initialize animation
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        animateParticles();
+
+        /**
+         * Handles the form submission to the Python API.
+         */
+        async function submitPlot() {
+            const plotInput = document.getElementById('plotInput').value;
+            const outputDiv = document.getElementById('output');
+            
+            outputDiv.innerText = "Loading...";
+
+            try {
+                // calls the FastAPI endpoint defined in app/main.py
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        movie_id: "user_session",
+                        plot_synopsis: plotInput
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    let errorMessage = "Unknown error";
+                    if (data.detail) {
+                        if (typeof data.detail === 'string') {
+                            errorMessage = data.detail;
+                        } else if (Array.isArray(data.detail)) {
+                            // Extract messages from Pydantic validation array
+                            errorMessage = data.detail.map(err => err.msg).join(", ");
+                        } else {
+                            errorMessage = JSON.stringify(data.detail);
+                        }
+                    }
+                    outputDiv.innerText = "Error: " + errorMessage;
+                } else {
+                    // Extract only the predicted genres (where value is 1)
+                    let foundGenres = [];
+                    for (const [genre, isPresent] of Object.entries(data.genres)) {
+                        if (isPresent === 1) foundGenres.push(genre);
+                    }
+                    
+                    if (foundGenres.length === 0) {
+                        outputDiv.innerText = "No genres detected (try lowering thresholds?).";
+                    } else {
+                        outputDiv.innerText = "Detected: " + foundGenres.join(", ");
+                    }
+                }
+            } catch (error) {
+                outputDiv.innerText = "Network Error: " + error.message;
+            }
+        }
+    </script>
+</body>
+</html>
