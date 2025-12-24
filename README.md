@@ -116,3 +116,6 @@ docker build -t roberta-inference .
 # Run
 docker run -p 8000:8000 roberta-inference
 ```
+
+## Hugging Face link
+[HuggingFace Website](https://huggingface.co/spaces/a38062an/roberta-genre-predictor)
